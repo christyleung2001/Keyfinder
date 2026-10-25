@@ -1,0 +1,897 @@
+```react
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  Music,
+  Volume2,
+  VolumeX,
+  Play,
+  RotateCcw,
+  Sparkles,
+  BookOpen,
+  Layers,
+  ChevronRight,
+  Info,
+  Check,
+  Search,
+  Sliders,
+  Sun,
+  Moon,
+  Grid,
+  Disc,
+  HelpCircle,
+  Copy,
+  ExternalLink
+} from 'lucide-react';
+
+// --- MUSIC THEORY ENGINE DATA & HELPER FUNCTIONS ---
+
+const CHROMATIC_SCALE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+const ENHARMONIC_MAP = {
+  'DB': 'C#', 'C#': 'C#',
+  'EB': 'D#', 'D#': 'D#',
+  'FB': 'E',  'E#': 'F',
+  'GB': 'F#', 'F#': 'F#',
+  'AB': 'G#', 'G#': 'G#',
+  'BB': 'A#', 'A#': 'A#',
+  'CB': 'B',  'B#': 'C',
+  'C': 'C', 'D': 'D', 'E': 'E', 'F': 'F', 'G': 'G', 'A': 'A', 'B': 'B'
+};
+
+const DISPLAY_ENHARMONICS = {
+  'C#': 'C# / D♭',
+  'D#': 'D# / E♭',
+  'F#': 'F# / G♭',
+  'G#': 'G# / A♭',
+  'A#': 'A# / B♭'
+};
+
+// Scale Formulas (intervals in semitones) with Movable Do Solfège Map (Short & Full)
+const SCALE_FORMULAS = [
+  {
+    name: 'Major (Ionian)',
+    category: 'major',
+    intervals: [0, 2, 4, 5, 7, 9, 11],
+    type: 'major',
+    degreeNames: ['Tonic', 'Supertonic', 'Mediant', 'Subdominant', 'Dominant', 'Submediant', 'Leading Tone'],
+    solfegeShort: ['d', 'r', 'm', 'f', 's', 'l', 't'],
+    solfegeFull: ['do', 're', 'mi', 'fa', 'sol', 'la', 'ti']
+  },
+  {
+    name: 'Natural Minor (Aeolian)',
+    category: 'minor',
+    intervals: [0, 2, 3, 5, 7, 8, 10],
+    type: 'minor',
+    degreeNames: ['Tonic', 'Supertonic', 'Submediant', 'Subdominant', 'Dominant', 'Submediant', 'Subtonic'],
+    solfegeShort: ['l', 't', 'd', 'r', 'm', 'f', 's'],
+    solfegeFull: ['la', 'ti', 'do', 're', 'mi', 'fa', 'sol']
+  },
+  {
+    name: 'Harmonic Minor',
+    category: 'minor',
+    intervals: [0, 2, 3, 5, 7, 8, 11],
+    type: 'minor',
+    degreeNames: ['Tonic', 'Supertonic', 'Submediant', 'Subdominant', 'Dominant', 'Submediant', 'Leading Tone'],
+    solfegeShort: ['l', 't', 'd', 'r', 'm', 'f', 'si'],
+    solfegeFull: ['la', 'ti', 'do', 're', 'mi', 'fa', 'si']
+  },
+  {
+    name: 'Melodic Minor',
+    category: 'minor',
+    intervals: [0, 2, 3, 5, 7, 9, 11],
+    type: 'minor',
+    degreeNames: ['Tonic', 'Supertonic', 'Submediant', 'Subdominant', 'Dominant', 'Submediant', 'Leading Tone'],
+    solfegeShort: ['l', 't', 'd', 'r', 'm', 'fi', 'si'],
+    solfegeFull: ['la', 'ti', 'do', 're', 'mi', 'fi', 'si']
+  },
+  {
+    name: 'Dorian Mode',
+    category: 'mode',
+    intervals: [0, 2, 3, 5, 7, 9, 10],
+    type: 'mode',
+    degreeNames: ['Tonic', 'Supertonic', 'Mediant', 'Subdominant', 'Dominant', 'Submediant', 'Subtonic'],
+    solfegeShort: ['r', 'm', 'f', 's', 'l', 't', 'd'],
+    solfegeFull: ['re', 'mi', 'fa', 'sol', 'la', 'ti', 'do']
+  },
+  {
+    name: 'Mixolydian Mode',
+    category: 'mode',
+    intervals: [0, 2, 4, 5, 7, 9, 10],
+    type: 'mode',
+    degreeNames: ['Tonic', 'Supertonic', 'Mediant', 'Subdominant', 'Dominant', 'Submediant', 'Subtonic'],
+    solfegeShort: ['s', 'l', 't', 'd', 'r', 'm', 'f'],
+    solfegeFull: ['sol', 'la', 'ti', 'do', 're', 'mi', 'fa']
+  },
+  {
+    name: 'Lydian Mode',
+    category: 'mode',
+    intervals: [0, 2, 4, 6, 7, 9, 11],
+    type: 'mode',
+    degreeNames: ['Tonic', 'Supertonic', 'Mediant', 'Augmented 4th', 'Dominant', 'Submediant', 'Leading Tone'],
+    solfegeShort: ['f', 's', 'l', 't', 'd', 'r', 'm'],
+    solfegeFull: ['fa', 'sol', 'la', 'ti', 'do', 're', 'mi']
+  },
+  {
+    name: 'Phrygian Mode',
+    category: 'mode',
+    intervals: [0, 1, 3, 5, 7, 8, 10],
+    type: 'mode',
+    degreeNames: ['Tonic', 'Flat 2nd', 'Mediant', 'Subdominant', 'Dominant', 'Submediant', 'Subtonic'],
+    solfegeShort: ['m', 'f', 's', 'l', 't', 'd', 'r'],
+    solfegeFull: ['mi', 'fa', 'sol', 'la', 'ti', 'do', 're']
+  },
+  {
+    name: 'Locrian Mode',
+    category: 'mode',
+    intervals: [0, 1, 3, 5, 6, 8, 10],
+    type: 'mode',
+    degreeNames: ['Tonic', 'Flat 2nd', 'Mediant', 'Subdominant', 'Diminished 5th', 'Submediant', 'Subtonic'],
+    solfegeShort: ['t', 'd', 'r', 'm', 'f', 's', 'l'],
+    solfegeFull: ['ti', 'do', 're', 'mi', 'fa', 'sol', 'la']
+  },
+  {
+    name: 'Major Pentatonic',
+    category: 'pentatonic',
+    intervals: [0, 2, 4, 7, 9],
+    type: 'pentatonic',
+    degreeNames: ['Tonic', '2nd', '3rd', '5th', '6th'],
+    solfegeShort: ['d', 'r', 'm', 's', 'l'],
+    solfegeFull: ['do', 're', 'mi', 'sol', 'la']
+  },
+  {
+    name: 'Minor Pentatonic',
+    category: 'pentatonic',
+    intervals: [0, 3, 5, 7, 10],
+    type: 'pentatonic',
+    degreeNames: ['Tonic', 'Flat 3rd', '4th', '5th', 'Flat 7th'],
+    solfegeShort: ['l', 'd', 'r', 'm', 's'],
+    solfegeFull: ['la', 'do', 're', 'mi', 'sol']
+  },
+  {
+    name: 'Blues Scale',
+    category: 'pentatonic',
+    intervals: [0, 3, 5, 6, 7, 10],
+    type: 'blues',
+    degreeNames: ['Tonic', 'Flat 3rd', '4th', 'Blue Note (♭5)', '5th', 'Flat 7th'],
+    solfegeShort: ['l', 'd', 'r', 'fi', 'm', 's'],
+    solfegeFull: ['la', 'do', 're', 'fi', 'mi', 'sol']
+  },
+];
+
+// Key Signatures for 12 Root Notes
+const KEY_SIGNATURES = {
+  'C': 'No sharps/flats',
+  'G': '1 Sharp (F#)',
+  'D': '2 Sharps (F#, C#)',
+  'A': '3 Sharps (F#, C#, G#)',
+  'E': '4 Sharps (F#, C#, G#, D#)',
+  'B': '5 Sharps (F#, C#, G#, D#, A#)',
+  'F#': '6 Sharps (F#, C#, G#, D#, A#, E#)',
+  'C#': '7 Sharps (F#, C#, G#, D#, A#, E#, B#)',
+  'F': '1 Flat (B♭)',
+  'A#': '2 Flats (B♭, E♭)', // Bb Major
+  'D#': '3 Flats (B♭, E♭, A♭)', // Eb Major
+  'G#': '4 Flats (B♭, E♭, A♭, D♭)', // Ab Major
+};
+
+// Circle of Fifths layout coordinates
+const CIRCLE_OF_FIFTHS = [
+  { note: 'C', minor: 'A', angle: -90, label: 'C Major / A Minor' },
+  { note: 'G', minor: 'E', angle: -60, label: 'G Major / E Minor' },
+  { note: 'D', minor: 'B', angle: -30, label: 'D Major / B Minor' },
+  { note: 'A', minor: 'F#', angle: 0, label: 'A Major / F# Minor' },
+  { note: 'E', minor: 'C#', angle: 30, label: 'E Major / C# Minor' },
+  { note: 'B', minor: 'G#', angle: 60, label: 'B Major / G# Minor' },
+  { note: 'F#', minor: 'D#', angle: 90, label: 'F# Major / D# Minor' },
+  { note: 'C#', minor: 'A#', angle: 120, label: 'D♭ Major / B♭ Minor' },
+  { note: 'G#', minor: 'F', angle: 150, label: 'A♭ Major / F Minor' },
+  { note: 'D#', minor: 'C', angle: 180, label: 'E♭ Major / C Minor' },
+  { note: 'A#', minor: 'G', angle: 210, label: 'B♭ Major / G Minor' },
+  { note: 'F', minor: 'D', angle: 240, label: 'F Major / D Minor' },
+];
+
+// Preset note selections
+const PRESETS = [
+  { name: 'C Major Scale', notes: ['C', 'D', 'E', 'F', 'G', 'A', 'B'] },
+  { name: 'G Major / E Minor', notes: ['G', 'A', 'B', 'C', 'D', 'E', 'F#'] },
+  { name: 'D Blues Scale', notes: ['D', 'F', 'G', 'G#', 'A', 'C'] },
+  { name: 'A Natural Minor', notes: ['A', 'B', 'C', 'D', 'E', 'F', 'G'] },
+  { name: 'E Harmonic Minor', notes: ['E', 'F#', 'G', 'A', 'B', 'C', 'D#'] },
+  { name: 'F Major Pop Chords', notes: ['F', 'A', 'C', 'D', 'E', 'G', 'A#'] }
+];
+
+// Helper to normalize note inputs into standard Pitch Classes (0 to 11)
+function normalizeNote(noteStr) {
+  if (!noteStr) return null;
+  let clean = noteStr.trim().toUpperCase()
+    .replace('♭', 'B')
+    .replace('♯', '#')
+    .replace('DB', 'C#')
+    .replace('EB', 'D#')
+    .replace('GB', 'F#')
+    .replace('AB', 'G#')
+    .replace('BB', 'A#');
+  
+  if (ENHARMONIC_MAP[clean]) {
+    clean = ENHARMONIC_MAP[clean];
+  }
+  
+  const index = CHROMATIC_SCALE.indexOf(clean);
+  return index !== -1 ? { name: clean, pitch: index } : null;
+}
+
+// Map Pitch Index back to pretty string representation
+function pitchToName(pitch, preferFlat = false) {
+  const norm = (pitch + 12) % 12;
+  const name = CHROMATIC_SCALE[norm];
+  if (preferFlat) {
+    const flatMap = { 'C#': 'D♭', 'D#': 'E♭', 'F#': 'G♭', 'G#': 'A♭', 'A#': 'B♭' };
+    return flatMap[name] || name;
+  }
+  return name;
+}
+
+// Convert note index to frequency (A4 = 440 Hz)
+function noteToFreq(pitchIndex, octave = 4) {
+  // C4 is midi note 60, pitchIndex 0 = C
+  const midi = (octave + 1) * 12 + pitchIndex;
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+// --- MAIN APPLICATION COMPONENT ---
+export default function App() {
+  const [selectedNotes, setSelectedNotes] = useState(['C', 'E', 'G', 'B']); // Initial Cmaj7 setup
+  const [textInput, setTextInput] = useState('C E G B');
+  const [activeTab, setActiveTab] = useState('matches'); // matches, chords, circle, theory
+  const [darkMode, setDarkMode] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [octave, setOctave] = useState(4);
+  const [playingNote, setPlayingNote] = useState(null);
+
+  // NEW FEATURES: Filters & Solfège Options
+  const [scaleCategoryFilter, setScaleCategoryFilter] = useState({
+    major: true,
+    minor: true,
+    mode: true,
+    pentatonic: true
+  });
+  const [solfegeStyle, setSolfegeStyle] = useState('short'); // 'short' (d r m f s l t) vs 'full' (do re mi fa sol la ti)
+
+  // Quick helper to select preset category filter
+  const applyPresetFilter = (preset) => {
+    if (preset === 'majorOnly') {
+      setScaleCategoryFilter({ major: true, minor: false, mode: false, pentatonic: false });
+    } else if (preset === 'minorOnly') {
+      setScaleCategoryFilter({ major: false, minor: true, mode: false, pentatonic: false });
+    } else if (preset === 'all') {
+      setScaleCategoryFilter({ major: true, minor: true, mode: true, pentatonic: true });
+    }
+  };
+
+  // Audio Context Ref
+  const audioCtxRef = useRef(null);
+
+  // Initialize Web Audio API
+  const getAudioContext = () => {
+    if (!audioCtxRef.current) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        audioCtxRef.current = new AudioCtx();
+      }
+    }
+    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+    return audioCtxRef.current;
+  };
+
+  // Play synthesized tone
+  const playTone = (pitchIndex, dur = 0.5, optOctave = octave) => {
+    if (!soundEnabled) return;
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(noteToFreq(pitchIndex, optOctave), ctx.currentTime);
+
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + dur);
+
+      setPlayingNote(pitchIndex);
+      setTimeout(() => setPlayingNote(null), dur * 1000);
+    } catch (e) {
+      console.warn("Audio Context playback error:", e);
+    }
+  };
+
+  // Play chord notes simultaneously
+  const playChord = (pitches) => {
+    if (!soundEnabled) return;
+    pitches.forEach((pitch, i) => {
+      // stagger slightly for strummed feel
+      setTimeout(() => {
+        playTone(pitch, 1.2, 4);
+      }, i * 40);
+    });
+  };
+
+  // Toggle dark/light theme
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
+
+  // Keep text input synced when note selection changes via keyboard/grid
+  const updateNotes = (newNotes) => {
+    const unique = Array.from(new Set(newNotes));
+    setSelectedNotes(unique);
+    setTextInput(unique.join(' '));
+  };
+
+  // Toggle a single note on/off
+  const toggleNote = (noteName) => {
+    const norm = normalizeNote(noteName);
+    if (!norm) return;
+    const exists = selectedNotes.includes(norm.name);
+    let next;
+    if (exists) {
+      next = selectedNotes.filter(n => n !== norm.name);
+    } else {
+      next = [...selectedNotes, norm.name];
+      playTone(norm.pitch);
+    }
+    updateNotes(next);
+  };
+
+  // Handle free text parsing
+  const handleTextChange = (e) => {
+    const val = e.target.value;
+    setTextInput(val);
+    const tokens = val.split(/[\s,]+/);
+    const parsed = [];
+    tokens.forEach(t => {
+      const norm = normalizeNote(t);
+      if (norm && !parsed.includes(norm.name)) {
+        parsed.push(norm.name);
+      }
+    });
+    setSelectedNotes(parsed);
+  };
+
+  // Clear all notes
+  const clearAll = () => {
+    setSelectedNotes([]);
+    setTextInput('');
+  };
+
+  // --- MATCHING ALGORITHM ---
+  const matches = useMemo(() => {
+    if (selectedNotes.length === 0) return [];
+
+    const userPitches = selectedNotes.map(n => CHROMATIC_SCALE.indexOf(n)).filter(p => p !== -1);
+    const results = [];
+
+    // Filter formulas based on user's active scaleCategoryFilter selection
+    const activeFormulas = SCALE_FORMULAS.filter(f => scaleCategoryFilter[f.category]);
+
+    // Loop through all 12 root notes and active scale formulas
+    for (let rootIndex = 0; rootIndex < 12; rootIndex++) {
+      const rootNoteName = CHROMATIC_SCALE[rootIndex];
+
+      activeFormulas.forEach(formula => {
+        const scalePitches = formula.intervals.map(i => (rootIndex + i) % 12);
+        
+        // Count how many of user's notes match this scale
+        let matchedCount = 0;
+        const missingNotes = [];
+        const extraNotes = [];
+
+        userPitches.forEach(p => {
+          if (scalePitches.includes(p)) {
+            matchedCount++;
+          } else {
+            extraNotes.push(CHROMATIC_SCALE[p]);
+          }
+        });
+
+        scalePitches.forEach(sp => {
+          if (!userPitches.includes(sp)) {
+            missingNotes.push(CHROMATIC_SCALE[sp]);
+          }
+        });
+
+        // Calculate match percentage
+        const matchScore = (matchedCount / userPitches.length) * 100;
+        const coverageScore = (matchedCount / scalePitches.length) * 100;
+        // Weighted confidence score
+        const confidence = Math.round(matchScore * 0.7 + coverageScore * 0.3);
+
+        if (matchedCount > 0 && matchScore >= 50) {
+          // Relative key determination
+          let relativeKey = '';
+          if (formula.type === 'major') {
+            const relMinorIndex = (rootIndex + 9) % 12;
+            relativeKey = `${CHROMATIC_SCALE[relMinorIndex]} Natural Minor`;
+          } else if (formula.type === 'minor') {
+            const relMajorIndex = (rootIndex + 3) % 12;
+            relativeKey = `${CHROMATIC_SCALE[relMajorIndex]} Major`;
+          }
+
+          results.push({
+            rootNote: rootNoteName,
+            rootIndex,
+            scaleName: `${rootNoteName} ${formula.name}`,
+            formula,
+            scalePitches,
+            confidence,
+            matchedCount,
+            totalInput: userPitches.length,
+            missingNotes,
+            extraNotes,
+            relativeKey,
+            keySig: KEY_SIGNATURES[rootNoteName] || 'Variable'
+          });
+        }
+      });
+    }
+
+    // Sort by confidence score descending, then matched count
+    return results.sort((a, b) => b.confidence - a.confidence || b.matchedCount - a.matchedCount);
+  }, [selectedNotes, scaleCategoryFilter]);
+
+  const topMatch = matches[0] || null;
+<!-- ... existing code ... bg-white border-slate-200'}`}>
+          
+          {/* TAB HEADER */}
+          <div className="flex border-b border-slate-800 overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('matches')}
+              className={`px-6 py-4 font-semibold text-sm border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'matches'
+                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" /> Real-time Scale Matches
+            </button>
+
+            <button
+              onClick={() => setActiveTab('chords')}
+              className={`px-6 py-4 font-semibold text-sm border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'chords'
+                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Layers className="w-4 h-4" /> Diatonic Chords Generator
+            </button>
+
+            <button
+              onClick={() => setActiveTab('circle')}
+              className={`px-6 py-4 font-semibold text-sm border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'circle'
+                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Disc className="w-4 h-4" /> Circle of Fifths Visualizer
+            </button>
+
+            <button
+              onClick={() => setActiveTab('theory')}
+              className={`px-6 py-4 font-semibold text-sm border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'theory'
+                  ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <BookOpen className="w-4 h-4" /> Scale Degrees & Theory Reference
+            </button>
+          </div>
+
+          {/* TAB CONTENT AREAS */}
+          <div className="p-6">
+
+            {/* TAB 1: MATCHES */}
+            {activeTab === 'matches' && (
+              <div className="space-y-6">
+
+                {/* FILTER CONTROL BAR & SOLFÈGE STYLING CONTROLS */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    
+                    {/* Scale Type Filters */}
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
+                        Result Scale Filters:
+                      </span>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <button
+                          onClick={() => applyPresetFilter('majorOnly')}
+                          className="text-xs px-2.5 py-1 rounded-md bg-indigo-600/30 border border-indigo-500/50 text-indigo-300 hover:bg-indigo-600 hover:text-white transition-all font-semibold"
+                        >
+                          Major Only
+                        </button>
+                        <button
+                          onClick={() => applyPresetFilter('minorOnly')}
+                          className="text-xs px-2.5 py-1 rounded-md bg-purple-600/30 border border-purple-500/50 text-purple-300 hover:bg-purple-600 hover:text-white transition-all font-semibold"
+                        >
+                          Minor Only
+                        </button>
+                        <button
+                          onClick={() => applyPresetFilter('all')}
+                          className="text-xs px-2.5 py-1 rounded-md bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition-all"
+                        >
+                          Show All
+                        </button>
+                        
+                        <div className="h-4 w-px bg-slate-800 mx-1 hidden sm:block"></div>
+
+                        {/* Custom Checkboxes */}
+                        {Object.keys(scaleCategoryFilter).map((cat) => (
+                          <label key={cat} className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={scaleCategoryFilter[cat]}
+                              onChange={(e) => setScaleCategoryFilter({ ...scaleCategoryFilter, [cat]: e.target.checked })}
+                              className="rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span className="capitalize">{cat}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Solfege Naming Option */}
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
+                        Solfège Notation:
+                      </span>
+                      <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs font-medium">
+                        <button
+                          onClick={() => setSolfegeStyle('short')}
+                          className={`px-3 py-1 rounded-md transition-all ${
+                            solfegeStyle === 'short'
+                              ? 'bg-indigo-600 text-white font-bold shadow'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Short (d r m)
+                        </button>
+                        <button
+                          onClick={() => setSolfegeStyle('full')}
+                          className={`px-3 py-1 rounded-md transition-all ${
+                            solfegeStyle === 'full'
+                              ? 'bg-indigo-600 text-white font-bold shadow'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Full (do re mi)
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                {matches.length === 0 ? (
+                  <div className="text-center py-12">
+                    <HelpCircle className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                    <h3 className="text-lg font-semibold text-slate-300">No Key Matches Found</h3>
+                    <p className="text-sm text-slate-500 max-w-md mx-auto mt-1">
+                      No matching scale found with current filter options. Try adjusting scale type checkboxes above or add more notes.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-sm text-slate-400 uppercase tracking-wider">
+                        Ranked Key Matches ({matches.length})
+                      </h3>
+                      <span className="text-xs text-slate-500">Movable Do Solfège Enabled</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {matches.map((match, idx) => {
+                        const isTop = idx === 0;
+                        const solfegeList = solfegeStyle === 'short' 
+                          ? match.formula.solfegeShort 
+                          : match.formula.solfegeFull;
+
+                        return (
+                          <div
+                            key={match.scaleName}
+                            className={`p-5 rounded-xl border transition-all relative overflow-hidden ${
+                              isTop
+                                ? 'bg-slate-950 border-indigo-500/80 shadow-lg shadow-indigo-500/10'
+                                : 'bg-slate-950/50 border-slate-800/80 hover:border-slate-700'
+                            }`}
+                          >
+                            {isTop && (
+                              <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-extrabold uppercase tracking-widest px-3 py-1 rounded-bl-lg shadow">
+                                Best Match
+                              </div>
+                            )}
+
+                            <div className="flex items-start justify-between mb-3">
+                              <div>
+                                <h4 className="font-bold text-lg text-white">{match.scaleName}</h4>
+                                <p className="text-xs text-indigo-400 font-medium">{match.keySig}</p>
+                              </div>
+                              <div className="text-right">
+                                <span className={`text-lg font-black ${
+                                  match.confidence >= 90 ? 'text-emerald-400' : match.confidence >= 70 ? 'text-amber-400' : 'text-slate-400'
+                                }`}>
+                                  {match.confidence}%
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Scale Notes & Corresponding Solfège Notation */}
+                            <div className="mb-4 bg-slate-900/80 p-3 rounded-lg border border-slate-800/80">
+                              <div className="mb-2">
+                                <span className="text-[11px] text-slate-400 block mb-1">Note Names:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {match.scalePitches.map((p) => {
+                                    const name = pitchToName(p);
+                                    const isUserInput = selectedNotes.includes(CHROMATIC_SCALE[p]);
+                                    return (
+                                      <span
+                                        key={p}
+                                        className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                                          isUserInput
+                                            ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-500/50'
+                                            : 'bg-slate-800 text-slate-400 border border-slate-700/50'
+                                        }`}
+                                      >
+                                        {name}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Solfege Row */}
+                              <div>
+                                <span className="text-[11px] text-amber-400/90 font-semibold block mb-1">Solfège (sol-fa):</span>
+                                <div className="flex flex-wrap gap-1 font-mono">
+                                  {solfegeList.map((syllable, i) => (
+                                    <span
+                                      key={i}
+                                      className="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30"
+                                    >
+                                      {syllable}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Relative & Parallel Information */}
+                            <div className="text-xs space-y-1 text-slate-400 pt-3 border-t border-slate-800/80">
+                              {match.relativeKey && (
+                                <div className="flex justify-between">
+                                  <span>Relative Key:</span>
+                                  <span className="text-slate-200 font-medium">{match.relativeKey}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between">
+                                <span>Matched Notes:</span>
+                                <span className="text-emerald-400 font-semibold">{match.matchedCount} of {match.totalInput}</span>
+                              </div>
+                              {match.extraNotes.length > 0 && (
+                                <div className="flex justify-between text-red-400">
+                                  <span>Out of Key Notes:</span>
+                                  <span>{match.extraNotes.join(', ')}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Play Scale Audio Button */}
+                            <button
+                              onClick={() => {
+                                match.scalePitches.forEach((p, i) => {
+                                  setTimeout(() => playTone(p, 0.4, 4), i * 250);
+                                });
+                              }}
+                              className="w-full mt-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-center gap-1.5 transition-colors"
+                            >
+                              <Play className="w-3.5 h-3.5 text-emerald-400" /> Play Full Scale Audio
+                            </button>
+
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 2: DIATONIC CHORDS */}
+            {activeTab === 'chords' && (
+              <div>
+                {!topMatch ? (
+                  <p className="text-slate-400 text-sm">Select notes to generate diatonic chords.</p>
+                ) : (
+                  <div>
+                    <div className="mb-6 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-white">Diatonic Triads for {topMatch.scaleName}</h3>
+                        <p className="text-xs text-slate-400">Harmonized chords built on each degree of the scale</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                      {diatonicChords.map((chord) => (
+                        <div
+                          key={chord.numeral}
+                          className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col justify-between hover:border-indigo-500/50 transition-all text-center"
+                        >
+                          <div>
+                            <span className="text-xs font-mono font-bold text-indigo-400 block mb-1">{chord.numeral}</span>
+                            <span className="font-bold text-lg text-white block mb-2">{chord.chordName}</span>
+                          </div>
+
+                          <div className="my-2">
+                            <span className="text-[10px] text-slate-500 block mb-1">{chord.degreeName}</span>
+                            <div className="flex justify-center gap-1">
+                              {chord.notes.map((n) => (
+                                <span key={n} className="text-xs font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">
+                                  {n}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => playChord(chord.pitches)}
+                            className="w-full mt-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-semibold flex items-center justify-center gap-1 transition-all"
+                          >
+                            <Play className="w-3 h-3" /> Play
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 3: CIRCLE OF FIFTHS */}
+            {activeTab === 'circle' && (
+              <div className="flex flex-col items-center">
+                <div className="text-center mb-6">
+                  <h3 className="text-lg font-bold text-white">Interactive Circle of Fifths</h3>
+                  <p className="text-xs text-slate-400 max-w-md">
+                    Shows structural relationships between the 12 chromatic key signatures.
+                  </p>
+                </div>
+
+                {/* SVG CIRCLE OF FIFTHS */}
+                <div className="relative w-80 h-80 sm:w-96 sm:h-96">
+                  <svg className="w-full h-full transform -rotate-90" viewBox="-120 -120 240 240">
+                    <circle cx="0" cy="0" r="100" className="fill-slate-950 stroke-slate-800" strokeWidth="2" />
+                    <circle cx="0" cy="0" r="65" className="fill-slate-900 stroke-slate-800" strokeWidth="1" />
+
+                    {CIRCLE_OF_FIFTHS.map((item, idx) => {
+                      const angleRad = (item.angle * Math.PI) / 180;
+                      
+                      // Outer circle pos (Major keys)
+                      const x1 = Math.cos(angleRad) * 82;
+                      const y1 = Math.sin(angleRad) * 82;
+
+                      // Inner circle pos (Minor keys)
+                      const x2 = Math.cos(angleRad) * 48;
+                      const y2 = Math.sin(angleRad) * 48;
+
+                      const isMatchedMajor = topMatch && topMatch.rootNote === item.note;
+
+                      return (
+                        <g key={item.note}>
+                          {/* Major Key Circle Node */}
+                          <circle
+                            cx={x1}
+                            cy={y1}
+                            r="14"
+                            className={`transition-all cursor-pointer ${
+                              isMatchedMajor
+                                ? 'fill-indigo-600 stroke-indigo-400 shadow-lg'
+                                : 'fill-slate-800 hover:fill-slate-700 stroke-slate-700'
+                            }`}
+                            onClick={() => updateNotes([item.note])}
+                          />
+                          <text
+                            x={x1}
+                            y={y1}
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            className={`text-[10px] font-extrabold font-mono pointer-events-none transform rotate-90 ${
+                              isMatchedMajor ? 'fill-white' : 'fill-slate-200'
+                            }`}
+                          >
+                            {item.note}
+                          </text>
+
+                          {/* Minor Key Label */}
+                          <text
+                            x={x2}
+                            y={y2}
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            className="text-[8px] font-mono fill-slate-400 transform rotate-90"
+                          >
+                            {item.minor}m
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+
+                <div className="mt-6 text-xs text-slate-400 flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-indigo-600 inline-block"></span>
+                  <span>Highlighted circle indicates the identified primary key</span>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: THEORY REFERENCE */}
+            {activeTab === 'theory' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-1">Music Theory Reference Guide</h3>
+                  <p className="text-xs text-slate-400">Understanding standard scale formulas and intervals</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {SCALE_FORMULAS.map((f) => (
+                    <div key={f.name} className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-bold text-indigo-300 text-sm">{f.name}</h4>
+                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+                          {f.type}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mb-3">
+                        Interval pattern (semitones): <span className="font-mono text-slate-200">{f.intervals.join(' - ')}</span>
+                      </p>
+                      <div className="text-[11px] text-slate-500">
+                        Degrees: {f.degreeNames.join(', ')}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+
+      </main>
+
+      {/* FOOTER */}
+      <footer className="border-t border-slate-800/80 mt-12 py-6 text-center text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4">
+          KeyFinder Studio • Built for Musicians, Educators, and Audio Enthusiasts
+        </div>
+      </footer>
+
+    </div>
+  );
+}
+
+```
